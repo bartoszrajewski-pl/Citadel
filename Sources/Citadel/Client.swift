@@ -91,9 +91,16 @@ public struct SSHAlgorithms: Sendable {
     public static let all: SSHAlgorithms = {
         var algorithms = SSHAlgorithms()
 
-        algorithms.transportProtectionSchemes = .add([
-            AES128CTR.self
-        ])
+        // AES128CTR is temporarily out: it implements the 2022 fork's
+        // NIOSSHTransportProtection (macNames/keySizes(forMac:)/init(mac:)),
+        // and this build targets Apple's swift-nio-ssh 0.9.1, whose protocol
+        // encrypts an already-serialized buffer in place. The cipher needs a
+        // real port, not a rename — see AES.swift.needs-port.
+        //
+        // Nothing is lost for a client talking to a modern server: NIOSSH
+        // bundles AES128/256-GCM, which every current OpenSSH prefers anyway.
+        // A server offering only aes128-ctr cannot be reached until this
+        // returns.
 
         algorithms.keyExchangeAlgorithms = .add([
             DiffieHellmanGroup14Sha1.self,
