@@ -9,36 +9,26 @@ public final class AES128CTR: NIOSSHTransportProtection {
         case sha1, sha256, sha512
     }
     
-    public static let macNames = [
-        "hmac-sha1",
-        "hmac-sha2-256",
-        "hmac-sha2-512"
-    ]
     public static let cipherBlockSize = 16
     public static let cipherName = "aes128-ctr"
+
+    /// One MAC per cipher, where the older protocol negotiated from a list.
+    /// hmac-sha2-256 is what current OpenSSH pairs with aes128-ctr.
+    public static let macName: String? = "hmac-sha2-256"
+
+    /// The packet length is inside the ciphertext, unlike the AEAD schemes
+    /// NIOSSH ships. This is what makes NIOSSH decrypt the first block on its
+    /// own to learn the length before asking for the rest.
+    public var lengthEncrypted: Bool { true }
+
+    public static let keySizes = ExpectedKeySizes(
+        ivSize: 16,
+        encryptionKeySize: 16, // 128 bits
+        macKeySize: SHA256.byteCount
+    )
+
     public var macBytes: Int {
-        keySizes.macKeySize
-    }
-    
-    public static func keySizes(forMac mac: String?) throws -> ExpectedKeySizes {
-        let macKeySize: Int
-        
-        switch mac {
-        case "hmac-sha1":
-            macKeySize = Insecure.SHA1.byteCount
-        case "hmac-sha2-256":
-            macKeySize = SHA256.byteCount
-        case "hmac-sha2-512":
-            macKeySize = SHA512.byteCount
-        default:
-            throw CitadelError.invalidMac
-        }
-        
-        return ExpectedKeySizes(
-            ivSize: 16,
-            encryptionKeySize: 16, // 128 bits
-            macKeySize: macKeySize
-        )
+        Self.keySizes.macKeySize
     }
     
     private var keys: NIOSSHSessionKeys
@@ -47,8 +37,8 @@ public final class AES128CTR: NIOSSHTransportProtection {
     private let mac: Mac
     private let keySizes: ExpectedKeySizes
     
-    public init(initialKeys: NIOSSHSessionKeys, mac: String?) throws {
-        let keySizes = try Self.keySizes(forMac: mac)
+    public init(initialKeys: NIOSSHSessionKeys) throws {
+        let keySizes = Self.keySizes
         
         guard
             initialKeys.outboundEncryptionKey.bitCount == keySizes.encryptionKeySize * 8,
@@ -57,17 +47,7 @@ public final class AES128CTR: NIOSSHTransportProtection {
             throw CitadelError.invalidKeySize
         }
         
-        switch mac {
-        case "hmac-sha1":
-            self.mac = .sha1
-        case "hmac-sha2-256":
-            self.mac = .sha256
-        case "hmac-sha2-512":
-            self.mac = .sha512
-        default:
-            throw CitadelError.invalidMac
-        }
-
+        self.mac = .sha256
         self.keys = initialKeys
         self.keySizes = keySizes
         self.encryptionContext = CCryptoBoringSSL_EVP_CIPHER_CTX_new()
