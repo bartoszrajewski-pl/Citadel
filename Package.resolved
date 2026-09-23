@@ -73,6 +73,14 @@
       }
     },
     {
+      "identity" : "swift-nio-ssh",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/bartoszrajewski-pl/swift-nio-ssh.git",
+      "state" : {
+        "revision" : "41405e194931a0fcdb9a4aec8a2bbc2718842d36"
+      }
+    },
+    {
       "identity" : "swift-system",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-system.git",
