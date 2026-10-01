@@ -77,7 +77,7 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/bartoszrajewski-pl/swift-nio-ssh.git",
       "state" : {
-        "revision" : "41405e194931a0fcdb9a4aec8a2bbc2718842d36"
+        "revision" : "1d30931cf8b3c16b056871e321d117cd544925c8"
       }
     },
     {

@@ -89,11 +89,38 @@ extension Insecure.RSA {
         }
         
         public func isValidSignature<D>(_ signature: NIOSSHSignatureProtocol, for data: D) -> Bool where D : DataProtocol {
+            if let signature = signature as? SHA512Signature {
+                return isValidSHA512Signature(signature, for: data)
+            }
             guard let signature = signature as? Signature else {
                 return false
             }
             
             return isValidSignature(signature, for: data)
+        }
+
+        func isValidSHA512Signature<D: DataProtocol>(_ signature: SHA512Signature, for data: D) -> Bool {
+            let context = CCryptoBoringSSL_RSA_new()
+            defer { CCryptoBoringSSL_RSA_free(context) }
+
+            let modulus = CCryptoBoringSSL_BN_new()!
+            let publicExponent = CCryptoBoringSSL_BN_new()!
+            CCryptoBoringSSL_BN_copy(modulus, self.modulus)
+            CCryptoBoringSSL_BN_copy(publicExponent, self.publicExponent)
+            guard CCryptoBoringSSL_RSA_set0_key(context, modulus, publicExponent, nil) == 1 else {
+                return false
+            }
+
+            let hash = Array(SHA512.hash(data: Array(data)))
+            let signature = Array(signature.rawRepresentation)
+            return CCryptoBoringSSL_RSA_verify(
+                NID_sha512,
+                hash,
+                hash.count,
+                signature,
+                signature.count,
+                context
+            ) == 1
         }
         
         public func write(to buffer: inout ByteBuffer) -> Int {
@@ -164,8 +191,44 @@ extension Insecure.RSA {
         }
     }
     
+    /// An RSA signature over SHA-512 (RFC 8332). The key blob stays "ssh-rsa";
+    /// only the signature, and the algorithm name a user authentication
+    /// request carries, say "rsa-sha2-512".
+    public struct SHA512Signature: ContiguousBytes, NIOSSHSignatureProtocol {
+        public static let signaturePrefix = "rsa-sha2-512"
+
+        public let rawRepresentation: Data
+
+        public init<D>(rawRepresentation: D) where D : DataProtocol {
+            self.rawRepresentation = Data(rawRepresentation)
+        }
+
+        public func withUnsafeBytes<R>(_ body: (UnsafeRawBufferPointer) throws -> R) rethrows -> R {
+            try rawRepresentation.withUnsafeBytes(body)
+        }
+
+        public func write(to buffer: inout ByteBuffer) -> Int {
+            return buffer.writeSSHString(rawRepresentation)
+        }
+
+        public static func read(from buffer: inout ByteBuffer) throws -> SHA512Signature {
+            guard let buffer = buffer.readSSHBuffer() else {
+                throw RSAError(message: "Invalid signature format")
+            }
+
+            return SHA512Signature(rawRepresentation: buffer.getData(at: 0, length: buffer.readableBytes)!)
+        }
+    }
+
     public final class PrivateKey: NIOSSHPrivateKeyProtocol {
         public static let keyPrefix = "ssh-rsa"
+
+        /// Sign in as rsa-sha2-512, not ssh-rsa: OpenSSH 8.8 and newer refuse
+        /// SHA-1 RSA signatures by default ("signature algorithm ssh-rsa not in
+        /// PubkeyAcceptedAlgorithms"), so an RSA key that plain `ssh` logs in
+        /// with was turned away here. rsa-sha2-512 has been accepted since
+        /// OpenSSH 7.2 (2016).
+        public static let userAuthAlgorithmName = SHA512Signature.signaturePrefix
         
         // Private Exponent
         internal let privateExponent: UnsafeMutablePointer<BIGNUM>
@@ -209,7 +272,7 @@ extension Insecure.RSA {
             )
         }
         
-        public func signature<D: DataProtocol>(for message: D) throws -> Signature {
+        public func signature<D: DataProtocol>(for message: D) throws -> SHA512Signature {
             let context = CCryptoBoringSSL_RSA_new()
             defer { CCryptoBoringSSL_RSA_free(context) }
 
@@ -230,12 +293,12 @@ extension Insecure.RSA {
                 throw CitadelError.signingError
             }
             
-            let hash = Array(Insecure.SHA1.hash(data: message))
+            let hash = Array(SHA512.hash(data: message))
             let out = UnsafeMutablePointer<UInt8>.allocate(capacity: 4096)
             defer { out.deallocate() }
             var outLength: UInt32 = 4096
             let result = CCryptoBoringSSL_RSA_sign(
-                NID_sha1,
+                NID_sha512,
                 hash,
                 Int(hash.count),
                 out,
@@ -247,11 +310,11 @@ extension Insecure.RSA {
                 throw CitadelError.signingError
             }
             
-            return Signature(rawRepresentation: Data(bytes: out, count: Int(outLength)))
+            return SHA512Signature(rawRepresentation: Data(bytes: out, count: Int(outLength)))
         }
         
         public func signature<D>(for data: D) throws -> NIOSSHSignatureProtocol where D : DataProtocol {
-            return try self.signature(for: data) as Signature
+            return try self.signature(for: data) as SHA512Signature
         }
         
         public func decrypt(_ message: EncryptedMessage) throws -> Data {
